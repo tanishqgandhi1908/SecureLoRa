@@ -18,7 +18,7 @@
 
 constexpr uint8_t  NODE_ID              = 1;
 constexpr uint32_t SEND_INTERVAL_MS     = 10000;  // 10 s for bench testing; the design uses 60 s
-constexpr float    TEMP_THRESHOLD_C     = 35.0;   // design value. Set to ~25 to test the LED by touching the sensor
+constexpr float    TEMP_THRESHOLD_C     = 35.0;   // design value. For a bench test, set just above room temp (e.g. 30) and hold the sensor
 constexpr uint8_t  ALERT_LED            = IoTPins::LED_1;  // GPIO 2 (red LED / onboard LED)
 
 Adafruit_BMP280 bmp(&Wire);
@@ -85,6 +85,11 @@ void setup() {
   digitalWrite(IoTPins::SERVO_PWM, LOW);
   pinMode(IoTPins::BUZZER, OUTPUT);
   digitalWrite(IoTPins::BUZZER, LOW);
+  // Yellow (D4) and green (D15) lab LEDs are unused. D15 is pulled HIGH at boot, so switch them off.
+  pinMode(IoTPins::LED_2, OUTPUT);
+  digitalWrite(IoTPins::LED_2, LOW);
+  pinMode(IoTPins::LED_3, OUTPUT);
+  digitalWrite(IoTPins::LED_3, LOW);
 
   // The OLED (if still wired from the labs) shares the SPI bus: keep it deselected.
   pinMode(IoTPins::OLED_CS, OUTPUT);
