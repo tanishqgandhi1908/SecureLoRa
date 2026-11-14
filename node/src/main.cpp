@@ -79,6 +79,13 @@ void setup() {
   pinMode(ALERT_LED, OUTPUT);
   digitalWrite(ALERT_LED, LOW);
 
+  // Lab parts stay wired on this board but are unused by the project.
+  // Hold their pins LOW so a floating pin can't twitch the servo or click the buzzer.
+  pinMode(IoTPins::SERVO_PWM, OUTPUT);
+  digitalWrite(IoTPins::SERVO_PWM, LOW);
+  pinMode(IoTPins::BUZZER, OUTPUT);
+  digitalWrite(IoTPins::BUZZER, LOW);
+
   // The OLED (if still wired from the labs) shares the SPI bus: keep it deselected.
   pinMode(IoTPins::OLED_CS, OUTPUT);
   digitalWrite(IoTPins::OLED_CS, HIGH);
