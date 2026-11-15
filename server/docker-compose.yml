@@ -1,0 +1,81 @@
+services:
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: securelora_influxdb
+    ports:
+      - "${INFLUXDB_PORT:-8086}:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USER:-securelora_admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-SecureLoRaAdmin2026!Password}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-securelora}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-readings}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-securelora_influx_super_secret_token_2026_abcdef}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://localhost:8086/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securelora_ingest
+    environment:
+      - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:-securelora_gateway_write_token_2026_demo}
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-securelora_influx_super_secret_token_2026_abcdef}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-securelora}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-readings}
+      - LOG_DIR=/var/log/securelora
+      - STALE_THRESHOLD_SECONDS=${STALE_THRESHOLD_SECONDS:-180}
+    volumes:
+      - ./logs:/var/log/securelora
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  reverse_proxy:
+    image: nginx:alpine
+    container_name: securelora_proxy
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - ingest
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: securelora_grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-dashboard_admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-SecureLoRaDashboard2026!Password}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  influxdb_data:
+  influxdb_config:
+  grafana_data:

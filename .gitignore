@@ -8,5 +8,24 @@
 # Secrets: never commit these (copy secrets_example.h -> secrets.h instead)
 **/include/secrets.h
 .env
+**/.env
+server/.env
+
+# Server certificates & private keys
+server/certs/*.key
+server/certs/*.pem
+server/certs/*.crt
+server/certs/*.srl
+server/certs/*.csr
+
+# Server logs and runtime data
+server/logs/
+*.log
+*.jsonl
+
+# Python artifacts
+.venv/
+__pycache__/
+*.pyc
 
 .DS_Store
