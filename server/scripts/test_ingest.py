@@ -26,7 +26,7 @@ script_dir = Path(__file__).resolve().parent
 server_dir = script_dir.parent
 env_file = server_dir / ".env"
 
-token = "securelora_gateway_write_token_2026_demo"
+token = os.environ.get("GATEWAY_API_TOKEN", "")
 http_port = 8080
 https_port = 8443
 
@@ -40,6 +40,9 @@ if env_file.exists():
                 http_port = int(line.split("=", 1)[1].strip())
             elif line.startswith("HTTPS_PORT="):
                 https_port = int(line.split("=", 1)[1].strip())
+
+if not token or token == "CHANGE_ME":
+    sys.exit("GATEWAY_API_TOKEN is not set. Put it in server/.env (see .env.example).")
 
 HTTP_BASE = f"http://localhost:{http_port}"
 HTTPS_BASE = f"https://localhost:{https_port}"

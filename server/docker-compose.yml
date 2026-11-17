@@ -7,10 +7,10 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USER:-securelora_admin}
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-SecureLoRaAdmin2026!Password}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:?Set INFLUXDB_PASSWORD in server/.env (copy .env.example)}
       - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-securelora}
       - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-readings}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-securelora_influx_super_secret_token_2026_abcdef}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in server/.env (copy .env.example)}
     volumes:
       - influxdb_data:/var/lib/influxdb2
       - influxdb_config:/etc/influxdb2
@@ -27,9 +27,9 @@ services:
       dockerfile: Dockerfile
     container_name: securelora_ingest
     environment:
-      - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:-securelora_gateway_write_token_2026_demo}
+      - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:?Set GATEWAY_API_TOKEN in server/.env (copy .env.example)}
       - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-securelora_influx_super_secret_token_2026_abcdef}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in server/.env (copy .env.example)}
       - INFLUXDB_ORG=${INFLUXDB_ORG:-securelora}
       - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-readings}
       - LOG_DIR=/var/log/securelora
@@ -61,7 +61,8 @@ services:
       - "${GRAFANA_PORT:-3000}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-dashboard_admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-SecureLoRaDashboard2026!Password}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in server/.env (copy .env.example)}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in server/.env (copy .env.example)}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer

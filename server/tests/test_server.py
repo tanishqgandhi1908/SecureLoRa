@@ -144,3 +144,34 @@ def test_link_health_tracker_gap_detection():
     # Staleness check
     assert not s2.is_stale(now=t0 + 60.0 + 100.0)  # 100s < 180s -> not stale
     assert s2.is_stale(now=t0 + 60.0 + 200.0)      # 200s > 180s -> stale!
+
+
+def test_storage_failure_returns_503(monkeypatch):
+    """If InfluxDB can't save the reading, the server must not claim success (200)."""
+    from app.influx import influx_service
+
+    monkeypatch.setattr(influx_service, "write_reading", lambda *args, **kwargs: False)
+    payload = {
+        "node_id": 1,
+        "seq": 50,
+        "type": "reading",
+        "temp_c": 24.5,
+        "pressure_hpa": 1013.2,
+        "alert": False,
+        "verdict": "unverified",
+    }
+    response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
+    assert response.status_code == 503
+
+
+def test_settings_reject_missing_or_short_token(monkeypatch):
+    """The server must refuse to start without a real gateway token (no auth bypass)."""
+    import pydantic
+    from app.config import Settings
+
+    monkeypatch.setenv("GATEWAY_API_TOKEN", "")
+    with pytest.raises(pydantic.ValidationError):
+        Settings(_env_file=None)
+    monkeypatch.setenv("GATEWAY_API_TOKEN", "CHANGE_ME")
+    with pytest.raises(pydantic.ValidationError):
+        Settings(_env_file=None)

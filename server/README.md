@@ -58,8 +58,8 @@ cd server
 # 1. Copy template environment file
 cp .env.example .env
 
-# 2. (Optional) Customize tokens or passwords in .env
-# Default gateway token: securelora_gateway_write_token_2026_demo
+# 2. REQUIRED: replace every CHANGE_ME in .env (the stack refuses to start otherwise)
+#    Generate random values with: openssl rand -hex 32
 ```
 
 ### Step 2: Generate TLS Certificates
@@ -89,11 +89,11 @@ You should see:
 
 ## 3. Web Interfaces & Credentials
 
-| Service | URL | Default Username | Default Password | Notes |
+| Service | URL | Username | Password | Notes |
 |---|---|---|---|---|
-| **Grafana Dashboard** | http://localhost:3000 | `dashboard_admin` | `SecureLoRaDashboard2026!Password` | Anonymous viewing enabled |
+| **Grafana Dashboard** | http://localhost:3000 | `dashboard_admin` | `GRAFANA_PASSWORD` from `.env` | Anonymous viewing enabled |
 | **Ingest Health** | http://localhost:8080/health | N/A | N/A | Returns JSON status |
-| **InfluxDB UI** | http://localhost:8086 | `securelora_admin` | `SecureLoRaAdmin2026!Password` | Org: `securelora`, Bucket: `readings` |
+| **InfluxDB UI** | http://localhost:8086 | `securelora_admin` | `INFLUXDB_PASSWORD` from `.env` | Org: `securelora`, Bucket: `readings` |
 
 ---
 
@@ -118,12 +118,14 @@ Expected output:
 - `[PASS] HTTPS Ingest with CA certificate (200 OK)`
 
 ### Manual Curl Tests
+Load the token into your shell first: `export $(grep GATEWAY_API_TOKEN .env)`
+
 
 **1. Send a valid reading:**
 ```bash
 curl -i -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer securelora_gateway_write_token_2026_demo" \
+  -H "Authorization: Bearer $GATEWAY_API_TOKEN" \
   -d '{"node_id":1,"seq":1,"type":"reading","temp_c":24.50,"pressure_hpa":1013.2,"alert":false,"rssi_dbm":-50,"snr_db":9.5,"verdict":"unverified"}'
 ```
 Response:
@@ -135,7 +137,7 @@ Response:
 ```bash
 curl -i -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer securelora_gateway_write_token_2026_demo" \
+  -H "Authorization: Bearer $GATEWAY_API_TOKEN" \
   -d '{"node_id":0,"seq":0,"type":"test","temp_c":0.0,"pressure_hpa":0.0,"alert":false,"verdict":"test"}'
 ```
 
@@ -151,7 +153,7 @@ curl -i -X POST http://localhost:8080/api/readings \
 ```bash
 curl -i -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer securelora_gateway_write_token_2026_demo" \
+  -H "Authorization: Bearer $GATEWAY_API_TOKEN" \
   -d '{"node_id":1, "temp_c": "invalid_temp"}'
 ```
 
@@ -185,7 +187,7 @@ Send these values privately (e.g. over Slack / email, NEVER in Git):
    - **Production (HTTPS):** `https://<YOUR_LAPTOP_IP>:8443/api/readings`
    *(Find your laptop IP using `ipconfig getifaddr en0` on macOS or `hostname -I` on Linux).*
 2. **API Token:**
-   `securelora_gateway_write_token_2026_demo` (or custom token from `.env`)
+   the `GATEWAY_API_TOKEN` value from `.env`
 3. **CA Certificate (for HTTPS):**
    Copy the contents of `server/certs/ca.pem` into `SERVER_ROOT_CA`:
    ```cpp

@@ -11,6 +11,6 @@ datasources:
       defaultBucket: readings
       tlsSkipVerify: true
     secureJsonData:
-      token: securelora_influx_super_secret_token_2026_abcdef
+      token: $INFLUXDB_TOKEN   # from server/.env via docker-compose
     isDefault: true
     editable: true

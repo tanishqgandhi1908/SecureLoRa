@@ -158,12 +158,21 @@ async def ingest_reading(
         rx_time=server_rx_time,
     )
 
-    influx_service.write_reading(
+    saved = influx_service.write_reading(
         payload=payload,
         server_rx_time=server_rx_time,
         delivery_rate_pct=health_state.delivery_rate_pct,
         gap_seconds=health_state.last_gap_seconds,
     )
+    if not saved:
+        # Never answer 200 for a reading we did not store: the gateway would treat it as
+        # delivered and the reading would vanish. 503 tells the gateway to keep/retry it,
+        # and the audit log records why there is a gap.
+        logger.error(f"InfluxDB write failed: node={payload.node_id} seq={payload.seq}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Storage unavailable; reading not saved. Retry later.",
+        )
 
     duration_ms = (time.time() - start_time) * 1000.0
 
