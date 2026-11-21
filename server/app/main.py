@@ -151,18 +151,24 @@ async def ingest_reading(
     # Step 2: Validate token
     verify_bearer_token(authorization)
 
-    # Step 1 & 3: Link Health Tracking & InfluxDB write
-    health_state = link_health_tracker.record_packet(
-        node_id=payload.node_id,
-        seq=payload.seq,
-        rx_time=server_rx_time,
-    )
+    # Step 1 & 3: Link Health Tracking & InfluxDB write.
+    # Only genuine readings count for link health (SEQ gaps, delivery rate, stale check).
+    # Rejected packets (forged/replayed: their SEQ is attacker-controlled) and test messages
+    # are stored and shown in the verdict panels, but must not distort the link statistics.
+    counts_for_link_health = payload.type == "reading" and payload.verdict in ("accepted", "unverified")
+    health_state = None
+    if counts_for_link_health:
+        health_state = link_health_tracker.record_packet(
+            node_id=payload.node_id,
+            seq=payload.seq,
+            rx_time=server_rx_time,
+        )
 
     saved = influx_service.write_reading(
         payload=payload,
         server_rx_time=server_rx_time,
-        delivery_rate_pct=health_state.delivery_rate_pct,
-        gap_seconds=health_state.last_gap_seconds,
+        delivery_rate_pct=health_state.delivery_rate_pct if health_state else None,
+        gap_seconds=health_state.last_gap_seconds if health_state else None,
     )
     if not saved:
         # Never answer 200 for a reading we did not store: the gateway would treat it as

@@ -206,3 +206,40 @@ def test_humidity_out_of_range_rejected():
     }
     response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
     assert response.status_code == 400
+
+
+def test_rejected_packet_does_not_touch_link_health():
+    """A forged packet with a huge SEQ must not change node link-health stats."""
+    from app.link_health import link_health_tracker
+
+    before = {n.node_id: (n.last_seq, n.missed_msgs) for n in link_health_tracker.get_all_states()}
+    payload = {
+        "node_id": 1,
+        "seq": 999999,
+        "type": "rejected",
+        "temp_c": 21.0,
+        "alert": False,
+        "verdict": "bad_signature",
+        "reason": "HMAC tag mismatch",
+    }
+    response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
+    assert response.status_code == 200
+    after = {n.node_id: (n.last_seq, n.missed_msgs) for n in link_health_tracker.get_all_states()}
+    assert after == before
+
+
+def test_accepted_reading_counts_for_link_health():
+    from app.link_health import link_health_tracker
+
+    payload = {
+        "node_id": 7,
+        "seq": 1,
+        "type": "reading",
+        "temp_c": 21.0,
+        "humidity_pct": 40.0,
+        "alert": False,
+        "verdict": "accepted",
+    }
+    response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
+    assert response.status_code == 200
+    assert any(n.node_id == 7 for n in link_health_tracker.get_all_states())
