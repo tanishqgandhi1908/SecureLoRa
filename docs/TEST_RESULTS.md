@@ -1,6 +1,6 @@
 # SecureLoRa: Bench Test Results
 
-Recorded **Fri Nov 20, 2026, 18:40–18:51** at the bench (node and gateway about 1 m apart, indoors). All values below are copied from the real Serial Monitor logs (gateway log: `gateway/logs/device-monitor-*.log`, timestamps from the PlatformIO `time` filter). Nothing here is estimated.
+Recorded **Fri Nov 20, 2026, 18:40–19:01** at the bench (node and gateway about 1 m apart, indoors). All values below are copied from the real Serial Monitor logs (gateway log: `gateway/logs/device-monitor-*.log`, timestamps from the PlatformIO `time` filter). Nothing here is estimated.
 
 ## Setup under test
 | Part | Details |
@@ -22,9 +22,10 @@ Recorded **Fri Nov 20, 2026, 18:40–18:51** at the bench (node and gateway abou
 | 4 | Forged packet | Node command `forge`: new SEQ 1011 with a made-up tag | Rejected as bad signature | 18:42:15 `RX: N=1;SEQ=1011;T=21.0;H=40.0;A=0;M=0011…eeff` → `REJECTED: bad_signature` | ✅ Pass |
 | 5 | Node reboot | Node reset | SEQ continues from flash; gateway keeps accepting | Node: `Last SEQ from flash: 7` → next packet `SEQ=8` → gateway `ACCEPTED` | ✅ Pass |
 | 6 | Gateway reboot | Gateway power cycle (18:45:45, `rst:0x1 POWERON_RESET`) | Last accepted SEQ survives | `Last accepted SEQ from flash: 33` → next packet SEQ 34 `ACCEPTED` | ✅ Pass |
-| 6b | Replay after gateway reboot | Reboot gateway, then node `replay` | Still rejected | — | ⏳ Not run yet |
+| 6b | Replay after gateway reboot | Gateway power cycle at 18:56:55, then node `replay` | Still rejected | Boot: `Last accepted SEQ from flash: 99`; SEQ 100 was sent during the reboot → logged `NOTE: 1 packet(s) missed (SEQ 99 -> 101)`; 18:57:49 `RX: N=1;SEQ=105;…;M=5482…` (byte-for-byte copy of the accepted SEQ 105) → `REJECTED: replay (SEQ 105 <= last accepted 105)` | ✅ Pass |
 | 7 | Wi-Fi outage | Network dropped (hotspot change) | Readings still received, POST failures logged, auto-reconnect | 18:42:54 `Wi-Fi: LOST connection`; SEQ 16–17 `ACCEPTED` → `POST FAILED -100 (no Wi-Fi…)`; 18:43:10 `Wi-Fi: connected` (about 16 s) | ✅ Pass (readings during the outage are **dropped, not buffered**) |
 | 8 | Server outage | `docker compose stop`, later `docker compose start` | Gateway keeps running, logs failures, recovers by itself | Every packet still `ACCEPTED` (SEQ 34 → 65 continuous, `missed=0`); POSTs `FAILED -1`; while the server restarted, `Connection reset by peer`; 18:50:27 `POST OK 200` again with no gateway action | ✅ Pass (outage readings **dropped**; each one logged with timestamp + SEQ) |
+| 8b | Real packet right after an attack (receive-fix retest) | Gateway re-uploaded with the fix, then node `tamper` | Next real packet accepted, nothing missed | 18:57:26 `RX: N=1;SEQ=102;T=99.9;…` → `REJECTED: bad_signature`; next real packets SEQ 103, 104, 105 all `ACCEPTED`, `missed` stayed at 1 (the earlier reboot gap) | ✅ Pass |
 | 9 | Alert LED ("decide and act") | Threshold set just above room temp, sensor warmed by hand | `A=1` + red LED on, then off after cooling | Earlier bench test (with BMP280, threshold 30 °C): SEQ 3–5 `A=1` at 30.06–30.44 °C, LED on; SEQ 6 at 29.83 °C `A=0`, LED off | ✅ Pass (repeat with the DHT-11 for the demo) |
 
 ### Link quality at the bench (about 1 m)
@@ -36,12 +37,26 @@ Gateway receive → `POST OK 200` took about **0.9–1.5 s** typically (TLS hand
 ## Problems found during testing
 | Problem | Cause | Fix | Status |
 |---|---|---|---|
-| 2 real packets lost (`NOTE: 2 packet(s) missed (SEQ 10 -> 13)`) | The node sent real SEQ 11 / 12 right after the `tamper` / `forge` test packets. The gateway's radio was idle while it POSTed the rejection (about 1 s), so the real packet was missed. An attacker could use this to cause loss by flooding junk packets | The gateway now puts the radio back into receive mode **before** handling/POSTing a packet (`LoRa.receive()`) | Fix built; **re-test pending** (re-upload the gateway, then `tamper` → the next real SEQ must be accepted with no `missed`) |
+| 2 real packets lost (`NOTE: 2 packet(s) missed (SEQ 10 -> 13)`) | The node sent real SEQ 11 / 12 right after the `tamper` / `forge` test packets. The gateway's radio was idle while it POSTed the rejection (about 1 s), so the real packet was missed. An attacker could use this to cause loss by flooding junk packets | The gateway now puts the radio back into receive mode **before** handling/POSTing a packet (`LoRa.receive()`) | ✅ Fixed and re-tested (test 8b) |
 | All POSTs failed after the network change | Laptops moved to a phone hotspot, so the server IP changed (the server cert is tied to the IP) | Use one stable network; if the IP changes, re-run `generate_certs.sh <new IP>` and update `SERVER_URL` | Resolved |
 | ESP32 HTTPS `-9984` (earlier) | mbedTLS 2.28 on the ESP32 only matches DNS-name SANs, not IP SANs | The cert script lists the IP as both DNS and IP SAN | Resolved |
 | Node: `I2C BUS STUCK: SDA/SCL LOW` | An I2C module (ATECC608A/MPU-6050) probably lost power and holds the lines low | None needed: nothing in the project uses I2C on the node now (HMAC replaced the ATECC608A) | Known, harmless |
 
+### Range / weak-signal run (18:59–19:00, node moved about 20–30 m away, 2 walls)
+| Time | SEQ | RSSI (dBm) | SNR (dB) | Result |
+|---|---|---|---|---|
+| 18:59:16 | 114 | −81 | 9.8 | accepted (SEQ 113 missed: `NOTE: 1 packet(s) missed (SEQ 112 -> 114)`) |
+| 18:59:26 | 115 | −83 | 10.0 | accepted |
+| 18:59:36 | 116 | −86 | 9.5 | accepted |
+| 18:59:46 | 117 | −92 | 8.8 | accepted |
+| 18:59:56 | 118 | −85 | 9.3 | accepted |
+| 19:00:06–26 | 119–121 | −78 to −75 | 9.8–10.3 | accepted |
+
+Distance / walls between the boards: **about 20–30 m indoors, through 2 walls** (distance estimated by the team, not measured with a tape).
+For scale: an SX1276 at SF7 / 125 kHz can still receive down to roughly −123 dBm (datasheet sensitivity), so −92 dBm leaves about 30 dB of margin.
+HTTPS POST times rose to 4–8 s in this window (e.g. SEQ 120: RX 19:00:16, POST OK 19:00:24) and one POST failed (SEQ 116, `-1`): the gateway's Wi-Fi, not LoRa.
+
 ## Not measured yet
 - **Node current (INA219):** logging works (`INA219 OK`), but VIN+/VIN− are not in the node's supply yet, so it reads −0.10 mA / 0.88 V (floating). Prediction to compare against: 6.8 mA (assumed deep sleep, 60 s cycle).
-- **Range at a realistic distance:** only bench distance so far.
+- **Range beyond about 30 m / outdoors:** only the indoor 20–30 m, 2-wall run above so far.
 - **72 h unattended run.**
