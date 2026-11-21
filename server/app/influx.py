@@ -71,7 +71,6 @@ class InfluxService:
             .tag("verdict", payload.verdict)
             .tag("is_test", "true" if payload.type == "test" else "false")
             .field("temp_c", float(payload.temp_c))
-            .field("pressure_hpa", float(payload.pressure_hpa))
             .field("alert", bool(payload.alert))
             .field("alert_int", 1 if payload.alert else 0)
             .field("seq", int(payload.seq))
@@ -79,6 +78,10 @@ class InfluxService:
             .time(now_dt, WritePrecision.NS)
         )
 
+        if payload.pressure_hpa is not None:
+            p_reading.field("pressure_hpa", float(payload.pressure_hpa))
+        if payload.humidity_pct is not None:
+            p_reading.field("humidity_pct", float(payload.humidity_pct))
         if payload.rssi_dbm is not None:
             p_reading.field("rssi_dbm", float(payload.rssi_dbm))
         if payload.snr_db is not None:

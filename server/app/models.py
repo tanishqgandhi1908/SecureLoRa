@@ -11,7 +11,9 @@ class ReadingPayload(BaseModel):
     seq: int = Field(..., description="Sequence counter from the node, +1 per packet")
     type: str = Field(..., description="'reading', 'test', 'heartbeat', or 'alert'")
     temp_c: float = Field(..., description="Temperature in degrees Celsius")
-    pressure_hpa: float = Field(..., description="Atmospheric pressure in hPa")
+    # Optional since Nov 20: the node now uses a DHT-11 (temp + humidity, no pressure).
+    pressure_hpa: Optional[float] = Field(None, description="Atmospheric pressure in hPa (BMP280 only)")
+    humidity_pct: Optional[float] = Field(None, ge=0, le=100, description="Relative humidity in % (DHT-11)")
     alert: bool = Field(..., description="High temperature alert flag (>35 C)")
     verdict: str = Field(
         ...,

@@ -175,3 +175,34 @@ def test_settings_reject_missing_or_short_token(monkeypatch):
     monkeypatch.setenv("GATEWAY_API_TOKEN", "CHANGE_ME")
     with pytest.raises(pydantic.ValidationError):
         Settings(_env_file=None)
+
+
+def test_dht11_reading_humidity_without_pressure():
+    """Since Nov 20 the node sends temperature + humidity (DHT-11) and no pressure."""
+    payload = {
+        "node_id": 1,
+        "seq": 60,
+        "type": "reading",
+        "temp_c": 23.0,
+        "humidity_pct": 41.0,
+        "alert": False,
+        "rssi_dbm": -50,
+        "snr_db": 9.0,
+        "verdict": "unverified",
+    }
+    response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
+    assert response.status_code == 200
+
+
+def test_humidity_out_of_range_rejected():
+    payload = {
+        "node_id": 1,
+        "seq": 61,
+        "type": "reading",
+        "temp_c": 23.0,
+        "humidity_pct": 140.0,
+        "alert": False,
+        "verdict": "unverified",
+    }
+    response = client.post("/api/readings", headers=AUTH_HEADER, json=payload)
+    assert response.status_code == 400

@@ -77,7 +77,7 @@ def main():
 
     seq = 1
     base_temp = 24.0
-    base_pressure = 1013.25
+    base_humidity = 45.0
     sent_count = 0
 
     try:
@@ -88,7 +88,6 @@ def main():
                     "seq": 0,
                     "type": "test",
                     "temp_c": 0.0,
-                    "pressure_hpa": 0.0,
                     "alert": False,
                     "verdict": "test",
                 }
@@ -106,8 +105,8 @@ def main():
                     temp = round(max(20.0, min(33.0, base_temp)), 2)
                     alert = False
 
-                base_pressure += random.uniform(-0.2, 0.2)
-                pressure = round(base_pressure, 1)
+                base_humidity += random.uniform(-0.5, 0.5)
+                humidity = round(max(20.0, min(80.0, base_humidity)), 1)
 
                 rssi = random.randint(-65, -45)
                 snr = round(random.uniform(7.5, 11.0), 1)
@@ -117,7 +116,7 @@ def main():
                     "seq": seq,
                     "type": "reading",
                     "temp_c": temp,
-                    "pressure_hpa": pressure,
+                    "humidity_pct": humidity,
                     "alert": alert,
                     "rssi_dbm": rssi,
                     "snr_db": snr,
@@ -126,7 +125,7 @@ def main():
 
                 print(
                     f"[TX] Node={args.node} SEQ={seq:04d} | Temp={temp:5.2f}°C | "
-                    f"Pres={pressure:6.1f}hPa | Alert={'YES' if alert else 'NO '} | "
+                    f"Hum={humidity:5.1f}% | Alert={'YES' if alert else 'NO '} | "
                     f"RSSI={rssi}dBm SNR={snr}dB"
                 )
 

@@ -74,7 +74,7 @@
     },
     {
       "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
-      "description": "Live barometric pressure from BMP280",
+      "description": "Live relative humidity from DHT-11",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -85,7 +85,7 @@
               { "color": "#3274D9", "value": null }
             ]
           },
-          "unit": "pressurehpa"
+          "unit": "humidity"
         },
         "overrides": []
       },
@@ -107,11 +107,11 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
-          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"pressure_hpa\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> last()",
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"humidity_pct\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> last()",
           "refId": "A"
         }
       ],
-      "title": "Live Pressure",
+      "title": "Live Humidity",
       "type": "stat"
     },
     {
@@ -324,7 +324,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Pressure (hPa)",
+            "axisLabel": "Humidity (%)",
             "axisPlacement": "auto",
             "fillOpacity": 15,
             "gradientMode": "opacity",
@@ -339,7 +339,7 @@
             "mode": "absolute",
             "steps": [{ "color": "blue", "value": null }]
           },
-          "unit": "pressurehpa"
+          "unit": "humidity"
         },
         "overrides": []
       },
@@ -352,11 +352,11 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
-          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"pressure_hpa\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"Pressure\")",
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"humidity_pct\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"Humidity\")",
           "refId": "A"
         }
       ],
-      "title": "Atmospheric Pressure History (hPa)",
+      "title": "Humidity History (%)",
       "type": "timeseries"
     },
     {

@@ -7,7 +7,7 @@ Reads the structured audit log (logs/ingest.jsonl) and computes:
 - HTTP request status breakdown (200, 400, 401, 500)
 - Total packets received vs expected (delivery rate)
 - Complete gap analysis: every missed packet and outage duration
-- Environmental telemetry summary (min, max, avg temperature & pressure)
+- Environmental telemetry summary (min, max, avg temperature & humidity; pressure if present)
 - Radio link metrics (min, max, avg RSSI & SNR)
 - Packet verdicts breakdown
 - Formatted markdown report for the 72-hour reliability submission
@@ -41,6 +41,11 @@ def parse_args():
         help="Nominal packet interval in seconds (default: 60s; use 10s for bench test)",
     )
     return parser.parse_args()
+
+
+def hum_range(ns: dict) -> str:
+    h = ns.get("humidity_stats")
+    return f"{h['min']:.1f} - {h['max']:.1f}" if h else "n/a"
 
 
 def safe_stats(values: list[float]) -> dict[str, float]:
@@ -182,6 +187,7 @@ def main():
         # Telemetry metrics
         temps = [rd["temp_c"] for rd in readings if rd.get("temp_c") is not None]
         pressures = [rd["pressure_hpa"] for rd in readings if rd.get("pressure_hpa") is not None]
+        humidities = [rd["humidity_pct"] for rd in readings if rd.get("humidity_pct") is not None]
         rssis = [rd["rssi_dbm"] for rd in readings if rd.get("rssi_dbm") is not None]
         snrs = [rd["snr_db"] for rd in readings if rd.get("snr_db") is not None]
         alerts = sum(1 for rd in readings if rd.get("alert") is True)
@@ -196,7 +202,9 @@ def main():
             "max_seq": max_seq,
             "gaps_count": len(gaps),
             "temp_stats": safe_stats(temps),
-            "pressure_stats": safe_stats(pressures),
+            # None (not zeros) when a sensor value was never received, so the report says n/a
+            "pressure_stats": safe_stats(pressures) if pressures else None,
+            "humidity_stats": safe_stats(humidities) if humidities else None,
             "rssi_stats": safe_stats(rssis),
             "snr_stats": safe_stats(snrs),
             "alert_count": alerts,
@@ -212,8 +220,12 @@ def main():
         print(f"  Detected gaps:      {len(gaps)}")
         print(f"  Temperature:        min={summary['temp_stats']['min']:.2f}°C, "
               f"max={summary['temp_stats']['max']:.2f}°C, mean={summary['temp_stats']['mean']:.2f}°C")
-        print(f"  Pressure:           min={summary['pressure_stats']['min']:.1f}hPa, "
-              f"max={summary['pressure_stats']['max']:.1f}hPa, mean={summary['pressure_stats']['mean']:.1f}hPa")
+        if humidities:
+            print(f"  Humidity:           min={summary['humidity_stats']['min']:.1f}%, "
+                  f"max={summary['humidity_stats']['max']:.1f}%, mean={summary['humidity_stats']['mean']:.1f}%")
+        if pressures:
+            print(f"  Pressure:           min={summary['pressure_stats']['min']:.1f}hPa, "
+                  f"max={summary['pressure_stats']['max']:.1f}hPa, mean={summary['pressure_stats']['mean']:.1f}hPa")
         if rssis:
             print(f"  RF RSSI:            min={summary['rssi_stats']['min']:.0f}dBm, "
                   f"max={summary['rssi_stats']['max']:.0f}dBm, mean={summary['rssi_stats']['mean']:.1f}dBm")
@@ -268,13 +280,13 @@ def main():
 
 ## 3. Radio Link & Environmental Summary
 
-| Node ID | Temp Range (°C) | Mean Temp (°C) | Pressure Range (hPa) | Mean RSSI (dBm) | Mean SNR (dB) | Alerts |
+| Node ID | Temp Range (°C) | Mean Temp (°C) | Humidity Range (%) | Mean RSSI (dBm) | Mean SNR (dB) | Alerts |
 |---|---|---|---|---|---|---|
 """
     for ns in node_summaries:
         md_content += (
             f"| {ns['node_id']} | {ns['temp_stats']['min']:.2f} - {ns['temp_stats']['max']:.2f} | "
-            f"{ns['temp_stats']['mean']:.2f} | {ns['pressure_stats']['min']:.1f} - {ns['pressure_stats']['max']:.1f} | "
+            f"{ns['temp_stats']['mean']:.2f} | {hum_range(ns)} | "
             f"{ns['rssi_stats']['mean']:.1f} | {ns['snr_stats']['mean']:.1f} | {ns['alert_count']} |\n"
         )
 
