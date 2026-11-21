@@ -7,7 +7,8 @@
 #include <HTTPClient.h>
 
 #include "iot_common.h"     // from ../shared: serial, SPI helpers + kit pin map
-#include "lora_settings.h"  // from ../shared: radio settings (must match the node)
+#include "lora_settings.h"
+#include "lora_diag.h"       // from ../shared: explains a LoRa init failure  // from ../shared: radio settings (must match the node)
 #include "secrets.h"        // YOUR copy of secrets_example.h (not in Git)
 
 // SecureLoRa GATEWAY - vertical slice version.
@@ -99,9 +100,11 @@ void keepWiFiAlive() {
   }
 }
 
+constexpr int POST_NO_WIFI = -100;  // our own code; HTTPClient's negative codes are connection errors
+
 // Sends one JSON body to SERVER_URL. Returns the HTTP status code (negative = no connection).
 int postJson(const String& body) {
-  if (WiFi.status() != WL_CONNECTED) return -1;
+  if (WiFi.status() != WL_CONNECTED) return POST_NO_WIFI;
 
   const bool useHttps = String(SERVER_URL).startsWith("https://");
   WiFiClient plainClient;
@@ -140,7 +143,9 @@ void forwardToServer(const String& json) {
   Serial.print("  -> POST ");
   Serial.print(ok ? "OK " : "FAILED ");
   Serial.print(code);
-  if (code == -1) Serial.print(" (no Wi-Fi; reading dropped, buffering comes later)");
+  if (code == POST_NO_WIFI) Serial.print(" (no Wi-Fi; reading dropped, buffering comes later)");
+  else if (code == -1) Serial.print(" (could not connect to server: down, wrong IP, or HTTPS certificate rejected)");
+  else if (code < 0) Serial.print(" (connection error, see HTTPClient error codes)");
   Serial.println();
 }
 
@@ -242,6 +247,7 @@ void setup() {
   loraOk = initLoRa();
   Serial.println(loraOk ? "LoRa OK (915 MHz), listening..."
                         : "LoRa INIT FAILED (check wiring: CS 14, RST 26, DIO0 25)");
+  if (!loraOk) loraDiagnose();
 
   startWiFi();
   Serial.println("Type 'fake' + Enter to POST a test reading to the server.");

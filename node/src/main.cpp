@@ -5,7 +5,8 @@
 #include <DHT.h>
 
 #include "iot_common.h"     // from ../shared: serial, I2C, SPI helpers + kit pin map
-#include "lora_settings.h"  // from ../shared: radio settings (must match the gateway)
+#include "lora_settings.h"
+#include "lora_diag.h"       // from ../shared: explains a LoRa init failure  // from ../shared: radio settings (must match the gateway)
 
 // SecureLoRa NODE - vertical slice version (UNSIGNED, plain text).
 //
@@ -106,8 +107,24 @@ void setup() {
   digitalWrite(IoTPins::LORA_CS, HIGH);
 
   // I2C: still used later for the ATECC608A (0x60). The scan just shows what's on the bus.
-  iotInitI2C();
-  iotI2CScan();
+  // First check the bus isn't stuck: with nothing talking, SDA and SCL must both read HIGH
+  // (pull-ups). A LOW line means a wire/device is holding it down, and a scan would just
+  // time out on every address. The DHT-11 and LoRa don't use I2C, so we carry on either way.
+  pinMode(IoTPins::I2C_SDA, INPUT_PULLUP);
+  pinMode(IoTPins::I2C_SCL, INPUT_PULLUP);
+  delay(5);
+  const bool sdaHigh = digitalRead(IoTPins::I2C_SDA) == HIGH;
+  const bool sclHigh = digitalRead(IoTPins::I2C_SCL) == HIGH;
+  if (sdaHigh && sclHigh) {
+    iotInitI2C();
+    Wire.setTimeOut(50);  // never wait long on one address
+    iotI2CScan();
+  } else {
+    Serial.print("I2C BUS STUCK: ");
+    if (!sdaHigh) Serial.print("SDA (GPIO 21) is LOW  ");
+    if (!sclHigh) Serial.print("SCL (GPIO 22) is LOW  ");
+    Serial.println("-> check wires in rows 21/22 (something touching GND?). Skipping I2C scan.");
+  }
 
   // DHT-11 needs about 1 s after power-up before the first reading
   dht.begin();
@@ -119,6 +136,7 @@ void setup() {
   iotInitSPI();
   loraOk = initLoRa();
   Serial.println(loraOk ? "LoRa OK (915 MHz)" : "LoRa INIT FAILED (check wiring: CS 14, RST 26, DIO0 25)");
+  if (!loraOk) loraDiagnose();
   Serial.println("Sending one reading every " + String(SEND_INTERVAL_MS / 1000) + " s.");
 
   sendReading();  // send one right away so you don't have to wait
