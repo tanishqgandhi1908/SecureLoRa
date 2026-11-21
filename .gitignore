@@ -10,3 +10,9 @@
 .env
 
 .DS_Store
+
+# HMAC key shared by node + gateway (copy shared/secret_key_example.h)
+shared/secret_key.h
+
+# Serial monitor logs (kept locally; copy the 72 h logs to /logs on purpose if needed)
+*.log

@@ -3,22 +3,36 @@
 #include <SPI.h>
 #include <LoRa.h>
 #include <DHT.h>
+#include <Preferences.h>    // ESP32 flash key-value store (NVS): keeps SEQ across reboots
 
 #include "iot_common.h"     // from ../shared: serial, I2C, SPI helpers + kit pin map
-#include "lora_settings.h"
-#include "lora_diag.h"       // from ../shared: explains a LoRa init failure  // from ../shared: radio settings (must match the gateway)
+#include "lora_settings.h"  // from ../shared: radio settings (must match the gateway)
+#include "lora_diag.h"      // from ../shared: explains a LoRa init failure
+#include "packet_auth.h"    // from ../shared: HMAC-SHA256 tag (needs shared/secret_key.h)
 
-// SecureLoRa NODE - vertical slice version (UNSIGNED, plain text).
+// SecureLoRa NODE.
 //
 // Every SEND_INTERVAL_MS: read the DHT-11, light the LED if too hot,
-// and send one text packet over LoRa, e.g.
-//   N=1;SEQ=5;T=23.0;H=41.0;A=0
+// and send one AUTHENTICATED text packet over LoRa, e.g.
+//   N=1;SEQ=5;T=23.0;H=41.0;A=0;M=3f9c...(32 hex)
 //   N = node id, SEQ = counter, T = temp (C), H = relative humidity (%), A = alert (1 = over threshold)
+//   M = HMAC-SHA256 tag over everything before ";M=" (see shared/packet_auth.h)
+//
+// Replay protection: SEQ is saved in flash BEFORE each send, so it never repeats, even after a
+// reboot or power cut. The gateway only accepts SEQ greater than the last one it accepted.
 //
 // Sensor change (Nov 20): the BMP280 failed, so we use the DHT-11 from the spare kit.
 // The DHT-11 has no pressure sensor, so the packet carries humidity instead of pressure.
 //
-// Later steps (not here yet): binary packet, ATECC608A signature, session/join, deep sleep.
+// Not done (on purpose, to keep it simple): ATECC608A signing, join handshake, deep sleep.
+//
+// TEST-ONLY attack commands (Serial Monitor over USB, for the fault tests / demo):
+//   replay  -> re-send the last packet exactly as it was   (gateway should say REPLAY)
+//   tamper  -> re-send the last packet with T changed      (gateway should say BAD_SIGNATURE)
+//   forge   -> send a new packet with a made-up tag        (gateway should say BAD_SIGNATURE)
+// They need physical USB access, and they only send packets the gateway must REJECT.
+// Set ENABLE_ATTACK_TESTS to 0 to remove them from the firmware.
+#define ENABLE_ATTACK_TESTS 1
 
 constexpr uint8_t  NODE_ID              = 1;
 constexpr uint32_t SEND_INTERVAL_MS     = 10000;  // 10 s for bench testing; the design uses 60 s
@@ -31,9 +45,11 @@ constexpr uint8_t  ALERT_LED            = IoTPins::LED_1;  // GPIO 2 (red LED / 
 constexpr uint8_t  DHT_PIN              = IoTPins::BUTTON_2;  // GPIO 33
 
 DHT dht(DHT_PIN, DHT11);
+Preferences prefs;
 bool loraOk = false;
-uint32_t seq = 0;
+uint32_t seq = 0;          // loaded from flash at boot
 uint32_t lastSendMs = 0;
+String lastPacket;         // kept only for the replay/tamper tests
 
 bool initLoRa() {
   LoRa.setPins(IoTPins::LORA_CS, IoTPins::LORA_RST, IoTPins::LORA_DIO0);
@@ -45,6 +61,23 @@ bool initLoRa() {
   LoRa.setSyncWord(LoRaSettings::SYNC_WORD);
   LoRa.enableCrc();  // receiver drops corrupted packets
   return true;
+}
+
+// Sends one packet over LoRa and prints it.
+void transmit(const String& packet) {
+  bool sent = false;
+  if (loraOk) {
+    LoRa.beginPacket();
+    LoRa.print(packet);
+    sent = (LoRa.endPacket() == 1);  // blocks until the packet is on air (~110 ms at SF7 for ~65 bytes)
+  }
+  lastPacket = packet;
+  Serial.print("Packet: ");
+  Serial.print(packet);
+  Serial.print("  (");
+  Serial.print(packet.length());
+  Serial.print(" bytes)  ");
+  Serial.println(!loraOk ? "NOT SENT (LoRa not initialized)" : sent ? "SENT" : "SEND FAILED");
 }
 
 void sendReading() {
@@ -61,24 +94,18 @@ void sendReading() {
   // DECIDE + ACT: LED on while temperature is over the threshold
   digitalWrite(ALERT_LED, alert ? HIGH : LOW);
 
+  // Save the new SEQ BEFORE sending: if power dies right after, the next boot still uses a
+  // higher number, so a SEQ is never sent twice.
   seq++;
-  char packet[64];
-  snprintf(packet, sizeof(packet), "N=%u;SEQ=%lu;T=%.1f;H=%.1f;A=%d",
+  prefs.putULong("seq", seq);
+
+  char body[64];
+  snprintf(body, sizeof(body), "N=%u;SEQ=%lu;T=%.1f;H=%.1f;A=%d",
            NODE_ID, (unsigned long)seq, tempC, humidityPct, alert ? 1 : 0);
+  char tag[PacketAuth::TAG_LEN * 2 + 1];
+  PacketAuth::computeTag(body, tag);
 
-  bool sent = false;
-  if (loraOk) {
-    LoRa.beginPacket();
-    LoRa.print(packet);
-    sent = (LoRa.endPacket() == 1);  // blocks until the packet is on air (~50 ms at SF7)
-  }
-
-  Serial.print("Packet: ");
-  Serial.print(packet);
-  Serial.print("  (");
-  Serial.print(strlen(packet));
-  Serial.print(" bytes)  ");
-  Serial.println(!loraOk ? "NOT SENT (LoRa not initialized)" : sent ? "SENT" : "SEND FAILED");
+  transmit(String(body) + PacketAuth::TAG_FIELD + tag);
 }
 
 void setup() {
@@ -133,18 +160,67 @@ void setup() {
   Serial.println(isnan(firstTemp) ? "DHT-11 NOT RESPONDING (check wiring: S -> GPIO 33)"
                                   : "DHT-11 OK (GPIO 33)");
 
+  // HMAC key (shared/secret_key.h). Without a valid key we refuse to send anything.
+  if (!PacketAuth::loadKey()) {
+    Serial.println("HMAC KEY MISSING/INVALID: copy shared/secret_key_example.h to shared/secret_key.h "
+                   "and put 64 hex chars in it (openssl rand -hex 32). Not sending.");
+  }
+
+  // Last SEQ from flash (survives reboot and re-flashing; only a full flash erase resets it)
+  prefs.begin("securelora", false);
+  seq = prefs.getULong("seq", 0);
+  Serial.println("Last SEQ from flash: " + String(seq));
+
   iotInitSPI();
   loraOk = initLoRa();
   Serial.println(loraOk ? "LoRa OK (915 MHz)" : "LoRa INIT FAILED (check wiring: CS 14, RST 26, DIO0 25)");
   if (!loraOk) loraDiagnose();
   Serial.println("Sending one reading every " + String(SEND_INTERVAL_MS / 1000) + " s.");
 
-  sendReading();  // send one right away so you don't have to wait
+  if (PacketAuth::keyOk) sendReading();  // send one right away so you don't have to wait
   lastSendMs = millis();
 }
 
+#if ENABLE_ATTACK_TESTS
+// Fault-test commands. Each one sends a packet the gateway MUST reject.
+void checkSerialCommands() {
+  if (!Serial.available()) return;
+  String cmd = Serial.readStringUntil('\n');
+  cmd.trim();
+  if (cmd.length() == 0) return;
+  if (lastPacket.length() == 0 && cmd != "forge") {
+    Serial.println("No packet sent yet, wait for the first reading.");
+    return;
+  }
+  if (cmd == "replay") {
+    Serial.println("[TEST] Replaying the last packet unchanged (expect REPLAY at the gateway):");
+    transmit(lastPacket);
+  } else if (cmd == "tamper") {
+    // Change the temperature to 99.9 but keep the old tag
+    String body, tag;
+    PacketAuth::split(lastPacket, body, tag);
+    const int t = body.indexOf(";T=");
+    const int end = body.indexOf(';', t + 1);
+    String tampered = body.substring(0, t) + ";T=99.9" + body.substring(end);
+    Serial.println("[TEST] Sending the last packet with T changed to 99.9, old tag (expect BAD_SIGNATURE):");
+    transmit(tampered + PacketAuth::TAG_FIELD + tag);
+  } else if (cmd == "forge") {
+    // A new, never-used SEQ but no key: the attacker has to guess the tag
+    char body[64];
+    snprintf(body, sizeof(body), "N=%u;SEQ=%lu;T=21.0;H=40.0;A=0", NODE_ID, (unsigned long)(seq + 1000));
+    Serial.println("[TEST] Sending a forged packet with a made-up tag (expect BAD_SIGNATURE):");
+    transmit(String(body) + PacketAuth::TAG_FIELD + "00112233445566778899aabbccddeeff");
+  } else {
+    Serial.println("Unknown command. Test commands: replay, tamper, forge");
+  }
+}
+#endif
+
 void loop() {
+#if ENABLE_ATTACK_TESTS
+  checkSerialCommands();
+#endif
   if (iotEvery(SEND_INTERVAL_MS, lastSendMs)) {
-    sendReading();
+    if (PacketAuth::keyOk) sendReading();
   }
 }

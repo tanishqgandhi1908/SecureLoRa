@@ -1,11 +1,12 @@
 # SecureLoRa (CS244P Group 19)
 
 A DHT-11 node in a shed sends temperature and humidity over 915 MHz LoRa to a gateway in the house, which forwards it over Wi-Fi to a server and dashboard.
-**Current stage: vertical slice.** Packets are plain text and **not signed yet**.
+Every packet carries an **HMAC-SHA256 tag** (pre-shared key) and a **SEQ counter saved in flash**. The gateway rejects forged/modified packets (`bad_signature`) and replays (`replay`).
 
 ```
 SecureLoRa/
-  shared/    iot_pins.h, iot_common.h (copied from the course labs), lora_settings.h (radio settings for both boards)
+  shared/    iot_pins.h, iot_common.h (copied from the course labs), lora_settings.h (radio settings for both boards),
+             packet_auth.h (HMAC tag), lora_diag.h (LoRa wiring check), secret_key_example.h (template for the key)
   node/      PlatformIO project: DHT-11 -> LoRa, LED alert
   gateway/   PlatformIO project: LoRa -> Wi-Fi -> HTTP(S) POST
 ```
@@ -39,27 +40,55 @@ The SPI OLED from the labs can stay wired (CS 5). The code keeps it switched off
 
 ## Run it
 
+**First, the shared key (both boards):** copy `shared/secret_key_example.h` to `shared/secret_key.h` and put a random key in it:
+```bash
+openssl rand -hex 32
+```
+Both the node and the gateway must be built with the **same** `secret_key.h`. It is git-ignored: share it privately.
+
 **Node:** open `node/`, then Upload → Serial Monitor. You should see the I2C scan, `DHT-11 OK`, `LoRa OK`, and a packet every 10 s:
 ```
-Packet: N=1;SEQ=3;T=23.0;H=41.0;A=0  (27 bytes)  SENT
+Packet: N=1;SEQ=3;T=23.0;H=41.0;A=0;M=<32 hex chars>  (63 bytes)  SENT
 ```
+SEQ continues from the last value saved in flash, so it never repeats, even after a reboot.
 
 **Gateway:**
 1. Copy `gateway/include/secrets_example.h` to `gateway/include/secrets.h` and fill in Wi-Fi + server URL. This file is git-ignored.
 2. Upload → Serial Monitor. Every packet from the node is printed with RSSI/SNR and POSTed as JSON:
 ```json
-{"node_id":1,"seq":3,"type":"reading","temp_c":23.00,"humidity_pct":41.0,"alert":false,"rssi_dbm":-45,"snr_db":9.8,"verdict":"unverified"}
+{"node_id":1,"seq":3,"type":"reading","temp_c":23.00,"humidity_pct":41.0,"alert":false,"rssi_dbm":-45,"snr_db":9.8,"verdict":"accepted"}
 ```
-3. No second radio yet? Type `fake` + Enter in the gateway's Serial Monitor. It POSTs one reading labelled `"type":"test"`, so you can test the server path.
+3. Gateway Serial Monitor commands: `fake` POSTs one `"type":"test"` record (don't use it during real runs). `resetseq` forgets the stored last-accepted SEQ (only needed if the node's flash was fully erased).
 
-## Not done yet (in build order)
-1. ATECC608A signature on the node + verification on the gateway (`verdict` becomes accepted/rejected)
-2. Session + sequence replay checks, join handshake
-3. Flash ring buffer on the gateway for Wi-Fi/server outages
-4. Deep sleep on the node, 60 s interval, current measurement with the INA219
-5. HTTPS only (no plain http) + server token
+## Gateway checks (in this order)
+| Check | Fails as | Forwarded to server? |
+|---|---|---|
+| Has N, SEQ, T and a `;M=` tag | `malformed` | no (counted + printed) |
+| Node id is one we have a key for (1) | `unknown_node` | yes, `type:"rejected"` (max 1 per 5 s) |
+| HMAC tag matches the body | `bad_signature` | yes, `type:"rejected"` (max 1 per 5 s) |
+| SEQ > last accepted SEQ (stored in flash) | `replay` | yes, `type:"rejected"` (max 1 per 5 s) |
+| all OK | `accepted` | yes, `type:"reading"` |
+
+## Fault tests (node Serial Monitor over USB)
+| Command | What the node sends | Gateway should print |
+|---|---|---|
+| `replay` | the last packet again, unchanged | `REJECTED: replay` |
+| `tamper` | the last packet with T changed to 99.9, old tag | `REJECTED: bad_signature` |
+| `forge` | a new packet with a made-up tag | `REJECTED: bad_signature` |
+Set `ENABLE_ATTACK_TESTS 0` in `node/src/main.cpp` to remove these commands. They only work over USB, and they can only send packets the gateway must reject.
+
+## Current measurement
+The gateway reads an INA219 (I2C 21/22) placed in the node's 5 V supply (VIN+ from the supply, VIN- to the node's VIN pin; node USB unplugged). It prints `POWER: avg/min/max mA ...` once per minute. The gateway Serial Monitor saves timestamped logs to `gateway/logs/`.
+
+## Not done (kept simple on purpose)
+- ATECC608A signing (HMAC with a pre-shared key is used instead: the proposal's fallback design)
+- Join handshake / session IDs (a SEQ persisted in flash on both sides is used instead)
+- Buffering readings during Wi-Fi/server outages (they are dropped and logged)
+- Deep sleep on the node; the 60 s interval (`SEND_INTERVAL_MS`) is set for the 72 h run
 
 ## Security notes
-- No passwords/tokens in Git: use `secrets.h` (ignored) and `secrets_example.h` (committed).
+- No passwords/tokens/keys in Git: `secrets.h` and `shared/secret_key.h` are ignored; the `_example.h` files are committed.
+- HMAC gives integrity and authenticity, **not secrecy**: anyone can read the readings over the air.
+- The key sits in normal flash on both boards: someone who steals a board can read it and forge packets (residual risk; the ATECC608A would fix this).
 - The LoRa sync word is **not** security. It only filters out other teams' radios.
 - The node accepts no over-the-air commands. Firmware is USB-only.

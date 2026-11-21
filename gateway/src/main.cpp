@@ -6,24 +6,28 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 
-#include "iot_common.h"     // from ../shared: serial, SPI helpers + kit pin map
-#include "lora_settings.h"
-#include "lora_diag.h"       // from ../shared: explains a LoRa init failure  // from ../shared: radio settings (must match the node)
-#include "secrets.h"        // YOUR copy of secrets_example.h (not in Git)
+#include <Preferences.h>    // ESP32 flash key-value store (NVS): keeps the last accepted SEQ
 
-// SecureLoRa GATEWAY - vertical slice version.
+#include "iot_common.h"     // from ../shared: serial, SPI helpers + kit pin map
+#include "lora_settings.h"  // from ../shared: radio settings (must match the node)
+#include "lora_diag.h"      // from ../shared: explains a LoRa init failure
+#include "packet_auth.h"    // from ../shared: HMAC-SHA256 tag check (needs shared/secret_key.h)
+#include "secrets.h"        // YOUR copy of secrets_example.h (not in Git)
+#include "power_monitor.h"  // INA219: measures the node's current
+
+// SecureLoRa GATEWAY.
 //
-//   1. Listen for LoRa packets from the node:  N=1;SEQ=5;T=23.0;H=41.0;A=0
+//   1. Listen for LoRa packets from the node:  N=1;SEQ=5;T=23.0;H=41.0;A=0;M=<HMAC tag>
 //      (H = humidity from the DHT-11; P = pressure is still accepted if a node sends it)
-//   2. Parse them and log RSSI/SNR.
-//   3. POST each reading as JSON to the server over Wi-Fi.
+//   2. Check them: format, known node, HMAC tag (authentic), SEQ (fresh, not a replay).
+//   3. POST accepted readings as JSON ("verdict":"accepted") to the server over HTTPS.
+//      Rejections are counted, printed, and forwarded (rate-limited) as "type":"rejected".
 //
-// Packets are NOT signed yet, so every reading is marked "verdict":"unverified".
-// Later steps: ATECC608A signature check, session + sequence (replay) checks,
-// flash ring buffer for Wi-Fi/server outages.
+// Not done: buffering readings during Wi-Fi/server outages (they are dropped and logged).
 //
-// Serial Monitor command (for testing without a second radio):
-//   fake  -> POST one clearly-labelled TEST reading to the server.
+// Serial Monitor commands:
+//   fake      -> POST one clearly-labelled TEST reading to the server
+//   resetseq  -> forget the stored last-accepted SEQ (only needed if the node's flash was erased)
 
 constexpr uint32_t WIFI_RETRY_MS = 10000;  // try to reconnect every 10 s if Wi-Fi drops
 
@@ -35,8 +39,17 @@ uint32_t packetsReceived = 0;
 uint32_t packetsMalformed = 0;
 uint32_t postsOk = 0;
 uint32_t postsFailed = 0;
-long lastSeqFromNode = -1;     // to spot missing packets (gaps in SEQ)
-uint32_t packetsMissed = 0;
+uint32_t packetsAccepted = 0;
+uint32_t packetsBadSig = 0;
+uint32_t packetsReplay = 0;
+uint32_t packetsUnknownNode = 0;
+uint32_t packetsMissed = 0;    // gaps in SEQ between accepted packets = lost packets
+
+// Replay protection state, persisted in flash
+constexpr int KNOWN_NODE_ID = 1;   // the only node we share a key with
+Preferences prefs;
+long lastAcceptedSeq = -1;         // -1 = nothing accepted yet
+String seqKey() { return "seq_n" + String(KNOWN_NODE_ID); }
 
 // ---------------------------------------------------------------- LoRa
 
@@ -151,6 +164,42 @@ void forwardToServer(const String& json) {
 
 // ---------------------------------------------------------------- handling packets
 
+// Checks, in order (each failure is logged with its reason and counted):
+//   1. format   - has N, SEQ, T and a ;M= tag              -> else "malformed" (logged only)
+//   2. node id  - only nodes we have a key for (node 1)      -> else "unknown_node"
+//   3. tag      - HMAC matches the body (needs the key)      -> else "bad_signature"
+//   4. SEQ      - greater than the last ACCEPTED SEQ         -> else "replay"
+// Only then is the reading "accepted" and forwarded as a real reading.
+// The tag is checked BEFORE SEQ: a packet that isn't authentic tells us nothing about SEQ.
+// The last accepted SEQ is stored in flash, so a gateway reboot can't be used to replay old packets.
+
+void forwardRejected(int nodeId, long seq, float claimedTemp, const char* verdict, const char* reason,
+                     int rssi, float snr) {
+  // Rate-limit: at most one rejected event per 5 s goes to the server (a flood of junk packets
+  // must not flood the server). Every rejection is still counted and printed here.
+  static uint32_t lastForwardMs = 0;
+  if (lastForwardMs != 0 && millis() - lastForwardMs < 5000) {
+    Serial.println("  (rejection not forwarded: rate limit)");
+    return;
+  }
+  lastForwardMs = millis();
+  char json[256];
+  snprintf(json, sizeof(json),
+           "{\"node_id\":%d,\"seq\":%ld,\"type\":\"rejected\",\"temp_c\":%.2f,\"alert\":false,"
+           "\"rssi_dbm\":%d,\"snr_db\":%.1f,\"verdict\":\"%s\",\"reason\":\"%s\"}",
+           nodeId, seq, claimedTemp, rssi, snr, verdict, reason);
+  forwardToServer(json);
+}
+
+void printTotals() {
+  Serial.printf("  totals: rx=%lu accepted=%lu bad_sig=%lu replay=%lu unknown=%lu malformed=%lu "
+                "missed=%lu postOK=%lu postFail=%lu\n",
+                (unsigned long)packetsReceived, (unsigned long)packetsAccepted,
+                (unsigned long)packetsBadSig, (unsigned long)packetsReplay,
+                (unsigned long)packetsUnknownNode, (unsigned long)packetsMalformed,
+                (unsigned long)packetsMissed, (unsigned long)postsOk, (unsigned long)postsFailed);
+}
+
 void handlePacket(const String& packet, int rssi, float snr) {
   packetsReceived++;
   Serial.println();
@@ -161,35 +210,64 @@ void handlePacket(const String& packet, int rssi, float snr) {
   Serial.print(" dBm  SNR ");
   Serial.println(snr, 1);
 
+  // 1. Format
+  String body, tag;
   String nodeStr, seqStr, tempStr, presStr, humStr, alertStr;
-  if (!getField(packet, "N", nodeStr) || !getField(packet, "SEQ", seqStr) ||
-      !getField(packet, "T", tempStr)) {
+  if (!PacketAuth::split(packet, body, tag) || !getField(body, "N", nodeStr) ||
+      !getField(body, "SEQ", seqStr) || !getField(body, "T", tempStr)) {
     packetsMalformed++;
-    Serial.println("  REJECTED: malformed packet");
+    Serial.println("  REJECTED: malformed (missing N/SEQ/T or tag)");
+    printTotals();
     return;
   }
-  // Optional fields: only forwarded if the node actually sent them (never invent values)
-  const bool hasPressure = getField(packet, "P", presStr);
-  const bool hasHumidity = getField(packet, "H", humStr);
-  getField(packet, "A", alertStr);
-
   const int nodeId = nodeStr.toInt();
   const long seq = seqStr.toInt();
   const float tempC = tempStr.toFloat();
-  const bool alert = (alertStr == "1");
 
-  // Gap detection only (NOT replay protection yet): if SEQ jumps, packets were lost.
-  // A lower SEQ usually means the node rebooted, so we just start counting again.
-  if (lastSeqFromNode >= 0 && seq > lastSeqFromNode + 1) {
-    const uint32_t gap = seq - lastSeqFromNode - 1;
-    packetsMissed += gap;
-    Serial.print("  NOTE: ");
-    Serial.print(gap);
-    Serial.println(" packet(s) missed");
-  } else if (lastSeqFromNode >= 0 && seq <= lastSeqFromNode) {
-    Serial.println("  NOTE: SEQ went backwards (node reboot or duplicate)");
+  // 2. Known node
+  if (nodeId != KNOWN_NODE_ID) {
+    packetsUnknownNode++;
+    Serial.println("  REJECTED: unknown_node " + nodeStr);
+    forwardRejected(nodeId, seq, tempC, "unknown_node", "no key for this node id", rssi, snr);
+    printTotals();
+    return;
   }
-  lastSeqFromNode = seq;
+
+  // 3. Authentic? (HMAC tag must match the body)
+  String checkedBody;
+  if (!PacketAuth::verify(packet, checkedBody)) {
+    packetsBadSig++;
+    Serial.println("  REJECTED: bad_signature (tag does not match: forged or modified)");
+    forwardRejected(nodeId, seq, tempC, "bad_signature", "HMAC tag mismatch", rssi, snr);
+    printTotals();
+    return;
+  }
+
+  // 4. Fresh? (SEQ must be higher than the last accepted one)
+  if (lastAcceptedSeq >= 0 && seq <= lastAcceptedSeq) {
+    packetsReplay++;
+    Serial.printf("  REJECTED: replay (SEQ %ld <= last accepted %ld)\n", seq, lastAcceptedSeq);
+    forwardRejected(nodeId, seq, tempC, "replay", "SEQ not greater than last accepted", rssi, snr);
+    printTotals();
+    return;
+  }
+
+  // Accepted. Count lost packets (SEQ jumped), then remember this SEQ in flash.
+  if (lastAcceptedSeq >= 0 && seq > lastAcceptedSeq + 1) {
+    const uint32_t gap = seq - lastAcceptedSeq - 1;
+    packetsMissed += gap;
+    Serial.printf("  NOTE: %lu packet(s) missed (SEQ %ld -> %ld)\n", (unsigned long)gap, lastAcceptedSeq, seq);
+  }
+  lastAcceptedSeq = seq;
+  prefs.putLong(seqKey().c_str(), lastAcceptedSeq);
+  packetsAccepted++;
+  Serial.println("  ACCEPTED (tag OK, SEQ fresh)");
+
+  // Optional fields: only forwarded if the node actually sent them (never invent values)
+  const bool hasPressure = getField(body, "P", presStr);
+  const bool hasHumidity = getField(body, "H", humStr);
+  getField(body, "A", alertStr);
+  const bool alert = (alertStr == "1");
 
   // Build the JSON piece by piece so optional fields are left out when missing
   char json[256];
@@ -203,13 +281,10 @@ void handlePacket(const String& packet, int rssi, float snr) {
     len += snprintf(json + len, sizeof(json) - len, "\"humidity_pct\":%.1f,", humStr.toFloat());
   }
   snprintf(json + len, sizeof(json) - len,
-           "\"alert\":%s,\"rssi_dbm\":%d,\"snr_db\":%.1f,\"verdict\":\"unverified\"}",
+           "\"alert\":%s,\"rssi_dbm\":%d,\"snr_db\":%.1f,\"verdict\":\"accepted\"}",
            alert ? "true" : "false", rssi, snr);
   forwardToServer(json);
-
-  Serial.printf("  totals: rx=%lu malformed=%lu missed=%lu postOK=%lu postFail=%lu\n",
-                (unsigned long)packetsReceived, (unsigned long)packetsMalformed,
-                (unsigned long)packetsMissed, (unsigned long)postsOk, (unsigned long)postsFailed);
+  printTotals();
 }
 
 // "fake" command: tests the Wi-Fi -> server -> Grafana path before the 2nd radio arrives.
@@ -226,8 +301,12 @@ void checkSerialCommands() {
   cmd.trim();
   if (cmd == "fake") {
     sendFakeTestReading();
+  } else if (cmd == "resetseq") {
+    lastAcceptedSeq = -1;
+    prefs.remove(seqKey().c_str());
+    Serial.println("Stored last-accepted SEQ cleared. The next valid packet will be accepted.");
   } else if (cmd.length() > 0) {
-    Serial.println("Unknown command. Available: fake");
+    Serial.println("Unknown command. Available: fake, resetseq");
   }
 }
 
@@ -243,19 +322,32 @@ void setup() {
   pinMode(IoTPins::LORA_CS, OUTPUT);
   digitalWrite(IoTPins::LORA_CS, HIGH);
 
+  if (!PacketAuth::loadKey()) {
+    Serial.println("HMAC KEY MISSING/INVALID: copy shared/secret_key_example.h to shared/secret_key.h "
+                   "(same file as the node). Every packet will be rejected as bad_signature.");
+  }
+  prefs.begin("securelora-gw", false);
+  lastAcceptedSeq = prefs.getLong(seqKey().c_str(), -1);
+  Serial.println("Last accepted SEQ from flash: " + String(lastAcceptedSeq));
+
   iotInitSPI();
   loraOk = initLoRa();
   Serial.println(loraOk ? "LoRa OK (915 MHz), listening..."
                         : "LoRa INIT FAILED (check wiring: CS 14, RST 26, DIO0 25)");
   if (!loraOk) loraDiagnose();
 
+  // I2C (SDA 21 / SCL 22) is only used by the INA219 on the gateway
+  iotInitI2C();
+  PowerMonitor::begin();
+
   startWiFi();
-  Serial.println("Type 'fake' + Enter to POST a test reading to the server.");
+  Serial.println("Commands: 'fake' = POST a test reading, 'resetseq' = clear stored SEQ.");
 }
 
 void loop() {
   keepWiFiAlive();
   checkSerialCommands();
+  PowerMonitor::update();
 
   if (loraOk) {
     const int packetSize = LoRa.parsePacket();
@@ -264,7 +356,14 @@ void loop() {
       while (LoRa.available()) {
         packet += (char)LoRa.read();
       }
-      handlePacket(packet, LoRa.packetRssi(), LoRa.packetSnr());
+      const int rssi = LoRa.packetRssi();
+      const float snr = LoRa.packetSnr();
+      // Start listening again BEFORE handling: handlePacket() can block 1-5 s on the HTTPS POST,
+      // and a packet arriving meanwhile would otherwise be lost (seen in the fault tests: a real
+      // packet right after a rejected one went missing). The radio keeps the next packet in its
+      // buffer and parsePacket() picks it up on the next loop.
+      LoRa.receive();
+      handlePacket(packet, rssi, snr);
     }
   }
 }
