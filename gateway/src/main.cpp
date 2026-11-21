@@ -12,7 +12,8 @@
 
 // SecureLoRa GATEWAY - vertical slice version.
 //
-//   1. Listen for LoRa packets from the node:  N=1;SEQ=5;T=23.45;P=1012.6;A=0
+//   1. Listen for LoRa packets from the node:  N=1;SEQ=5;T=23.0;H=41.0;A=0
+//      (H = humidity from the DHT-11; P = pressure is still accepted if a node sends it)
 //   2. Parse them and log RSSI/SNR.
 //   3. POST each reading as JSON to the server over Wi-Fi.
 //
@@ -155,19 +156,21 @@ void handlePacket(const String& packet, int rssi, float snr) {
   Serial.print(" dBm  SNR ");
   Serial.println(snr, 1);
 
-  String nodeStr, seqStr, tempStr, presStr, alertStr;
+  String nodeStr, seqStr, tempStr, presStr, humStr, alertStr;
   if (!getField(packet, "N", nodeStr) || !getField(packet, "SEQ", seqStr) ||
-      !getField(packet, "T", tempStr) || !getField(packet, "P", presStr)) {
+      !getField(packet, "T", tempStr)) {
     packetsMalformed++;
     Serial.println("  REJECTED: malformed packet");
     return;
   }
-  getField(packet, "A", alertStr);  // optional
+  // Optional fields: only forwarded if the node actually sent them (never invent values)
+  const bool hasPressure = getField(packet, "P", presStr);
+  const bool hasHumidity = getField(packet, "H", humStr);
+  getField(packet, "A", alertStr);
 
   const int nodeId = nodeStr.toInt();
   const long seq = seqStr.toInt();
   const float tempC = tempStr.toFloat();
-  const float pressureHpa = presStr.toFloat();
   const bool alert = (alertStr == "1");
 
   // Gap detection only (NOT replay protection yet): if SEQ jumps, packets were lost.
@@ -183,12 +186,20 @@ void handlePacket(const String& packet, int rssi, float snr) {
   }
   lastSeqFromNode = seq;
 
+  // Build the JSON piece by piece so optional fields are left out when missing
   char json[256];
-  snprintf(json, sizeof(json),
-           "{\"node_id\":%d,\"seq\":%ld,\"type\":\"reading\",\"temp_c\":%.2f,"
-           "\"pressure_hpa\":%.1f,\"alert\":%s,\"rssi_dbm\":%d,\"snr_db\":%.1f,"
-           "\"verdict\":\"unverified\"}",
-           nodeId, seq, tempC, pressureHpa, alert ? "true" : "false", rssi, snr);
+  int len = snprintf(json, sizeof(json),
+                     "{\"node_id\":%d,\"seq\":%ld,\"type\":\"reading\",\"temp_c\":%.2f,",
+                     nodeId, seq, tempC);
+  if (hasPressure) {
+    len += snprintf(json + len, sizeof(json) - len, "\"pressure_hpa\":%.1f,", presStr.toFloat());
+  }
+  if (hasHumidity) {
+    len += snprintf(json + len, sizeof(json) - len, "\"humidity_pct\":%.1f,", humStr.toFloat());
+  }
+  snprintf(json + len, sizeof(json) - len,
+           "\"alert\":%s,\"rssi_dbm\":%d,\"snr_db\":%.1f,\"verdict\":\"unverified\"}",
+           alert ? "true" : "false", rssi, snr);
   forwardToServer(json);
 
   Serial.printf("  totals: rx=%lu malformed=%lu missed=%lu postOK=%lu postFail=%lu\n",
@@ -201,7 +212,7 @@ void handlePacket(const String& packet, int rssi, float snr) {
 void sendFakeTestReading() {
   Serial.println("Sending a TEST reading (not real sensor data)...");
   forwardToServer("{\"node_id\":0,\"seq\":0,\"type\":\"test\",\"temp_c\":0.0,"
-                  "\"pressure_hpa\":0.0,\"alert\":false,\"verdict\":\"test\"}");
+                  "\"alert\":false,\"verdict\":\"test\"}");
 }
 
 void checkSerialCommands() {

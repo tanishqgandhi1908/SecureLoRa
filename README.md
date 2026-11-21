@@ -1,12 +1,12 @@
 # SecureLoRa (CS244P Group 19)
 
-A BMP280 node in a shed sends temperature over 915 MHz LoRa to a gateway in the house, which forwards it over Wi-Fi to a server and dashboard.
+A DHT-11 node in a shed sends temperature and humidity over 915 MHz LoRa to a gateway in the house, which forwards it over Wi-Fi to a server and dashboard.
 **Current stage: vertical slice.** Packets are plain text and **not signed yet**.
 
 ```
 SecureLoRa/
   shared/    iot_pins.h, iot_common.h (copied from the course labs), lora_settings.h (radio settings for both boards)
-  node/      PlatformIO project: BMP280 -> LoRa, LED alert
+  node/      PlatformIO project: DHT-11 -> LoRa, LED alert
   gateway/   PlatformIO project: LoRa -> Wi-Fi -> HTTP(S) POST
 ```
 Open `node/` or `gateway/` as its own project in VS Code (PlatformIO: File → Open Folder).
@@ -29,25 +29,26 @@ Open `node/` or `gateway/` as its own project in VS Code (PlatformIO: File → O
 **Node only:**
 | Part | ESP32 |
 |---|---|
-| BMP280 + ATECC608A: VCC / GND | 3V3 / GND |
-| BMP280 + ATECC608A: SDA / SCL | GPIO 21 / GPIO 22 |
-| BMP280 SDO / CSB | GND (address 0x76) / 3V3 |
+| DHT-11: `+` / `-` / `S` | 3V3 / GND / **GPIO 33** (shared with lab Button 2: don't press it while the project runs) |
+| ATECC608A: VCC / GND / SDA / SCL | 3V3 / GND / GPIO 21 / GPIO 22 |
 | Alert LED | GPIO 2 → 220 Ω → LED → GND (GPIO 2 is also the onboard LED) |
 
 The SPI OLED from the labs can stay wired (CS 5). The code keeps it switched off.
 
+**Sensor change (Nov 20):** the original BMP280 (temperature + pressure) failed, so the node now uses the DHT-11 (temperature ±2 °C + humidity) from a spare kit. Packets carry humidity (`H=`) instead of pressure (`P=`). The gateway and server still accept pressure if a BMP280 comes back.
+
 ## Run it
 
-**Node:** open `node/`, then Upload → Serial Monitor. You should see the I2C scan, `BMP280 OK`, `LoRa OK`, and a packet every 10 s:
+**Node:** open `node/`, then Upload → Serial Monitor. You should see the I2C scan, `DHT-11 OK`, `LoRa OK`, and a packet every 10 s:
 ```
-Packet: N=1;SEQ=3;T=23.41;P=1012.6;A=0  (31 bytes)  SENT
+Packet: N=1;SEQ=3;T=23.0;H=41.0;A=0  (27 bytes)  SENT
 ```
 
 **Gateway:**
 1. Copy `gateway/include/secrets_example.h` to `gateway/include/secrets.h` and fill in Wi-Fi + server URL. This file is git-ignored.
 2. Upload → Serial Monitor. Every packet from the node is printed with RSSI/SNR and POSTed as JSON:
 ```json
-{"node_id":1,"seq":3,"type":"reading","temp_c":23.41,"pressure_hpa":1012.6,"alert":false,"rssi_dbm":-45,"snr_db":9.8,"verdict":"unverified"}
+{"node_id":1,"seq":3,"type":"reading","temp_c":23.00,"humidity_pct":41.0,"alert":false,"rssi_dbm":-45,"snr_db":9.8,"verdict":"unverified"}
 ```
 3. No second radio yet? Type `fake` + Enter in the gateway's Serial Monitor. It POSTs one reading labelled `"type":"test"`, so you can test the server path.
 

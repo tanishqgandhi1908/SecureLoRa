@@ -2,17 +2,20 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <LoRa.h>
-#include <Adafruit_BMP280.h>
+#include <DHT.h>
 
 #include "iot_common.h"     // from ../shared: serial, I2C, SPI helpers + kit pin map
 #include "lora_settings.h"  // from ../shared: radio settings (must match the gateway)
 
 // SecureLoRa NODE - vertical slice version (UNSIGNED, plain text).
 //
-// Every SEND_INTERVAL_MS: read the BMP280, light the LED if too hot,
+// Every SEND_INTERVAL_MS: read the DHT-11, light the LED if too hot,
 // and send one text packet over LoRa, e.g.
-//   N=1;SEQ=5;T=23.45;P=1012.6;A=0
-//   N = node id, SEQ = counter, T = temp (C), P = pressure (hPa), A = alert (1 = over threshold)
+//   N=1;SEQ=5;T=23.0;H=41.0;A=0
+//   N = node id, SEQ = counter, T = temp (C), H = relative humidity (%), A = alert (1 = over threshold)
+//
+// Sensor change (Nov 20): the BMP280 failed, so we use the DHT-11 from the spare kit.
+// The DHT-11 has no pressure sensor, so the packet carries humidity instead of pressure.
 //
 // Later steps (not here yet): binary packet, ATECC608A signature, session/join, deep sleep.
 
@@ -21,8 +24,12 @@ constexpr uint32_t SEND_INTERVAL_MS     = 10000;  // 10 s for bench testing; the
 constexpr float    TEMP_THRESHOLD_C     = 35.0;   // design value. For a bench test, set just above room temp (e.g. 30) and hold the sensor
 constexpr uint8_t  ALERT_LED            = IoTPins::LED_1;  // GPIO 2 (red LED / onboard LED)
 
-Adafruit_BMP280 bmp(&Wire);
-bool bmpOk = false;
+// DHT-11 data pin. Every free GPIO is taken by the lab wiring, so the data wire shares GPIO 33
+// with lab Button 2. That's safe: the button only connects the pin to GND while pressed.
+// Don't press Button 2 while the project runs (it would corrupt that one reading).
+constexpr uint8_t  DHT_PIN              = IoTPins::BUTTON_2;  // GPIO 33
+
+DHT dht(DHT_PIN, DHT11);
 bool loraOk = false;
 uint32_t seq = 0;
 uint32_t lastSendMs = 0;
@@ -40,13 +47,14 @@ bool initLoRa() {
 }
 
 void sendReading() {
-  if (!bmpOk) {
-    Serial.println("Skipping send: BMP280 not found.");
+  const float tempC = dht.readTemperature();
+  const float humidityPct = dht.readHumidity();
+  if (isnan(tempC) || isnan(humidityPct)) {
+    // No reading -> no packet (never send a made-up value). SEQ doesn't advance, so the server
+    // sees a time gap, not lost packets, and this line in the node log explains it.
+    Serial.println("DHT-11 read FAILED (check wiring: + -> 3V3, - -> GND, S -> GPIO 33). Nothing sent.");
     return;
   }
-
-  const float tempC = bmp.readTemperature();
-  const float pressureHpa = bmp.readPressure() / 100.0;
   const bool alert = tempC > TEMP_THRESHOLD_C;
 
   // DECIDE + ACT: LED on while temperature is over the threshold
@@ -54,8 +62,8 @@ void sendReading() {
 
   seq++;
   char packet[64];
-  snprintf(packet, sizeof(packet), "N=%u;SEQ=%lu;T=%.2f;P=%.1f;A=%d",
-           NODE_ID, (unsigned long)seq, tempC, pressureHpa, alert ? 1 : 0);
+  snprintf(packet, sizeof(packet), "N=%u;SEQ=%lu;T=%.1f;H=%.1f;A=%d",
+           NODE_ID, (unsigned long)seq, tempC, humidityPct, alert ? 1 : 0);
 
   bool sent = false;
   if (loraOk) {
@@ -97,11 +105,16 @@ void setup() {
   pinMode(IoTPins::LORA_CS, OUTPUT);
   digitalWrite(IoTPins::LORA_CS, HIGH);
 
-  // I2C: BMP280 (0x76) and ATECC608A (0x60) share SDA 21 / SCL 22
+  // I2C: still used later for the ATECC608A (0x60). The scan just shows what's on the bus.
   iotInitI2C();
   iotI2CScan();
-  bmpOk = bmp.begin(IoTPins::BMP280_ADDR);
-  Serial.println(bmpOk ? "BMP280 OK" : "BMP280 NOT FOUND (check wiring, SDO->GND, CSB->3V3)");
+
+  // DHT-11 needs about 1 s after power-up before the first reading
+  dht.begin();
+  delay(1500);
+  const float firstTemp = dht.readTemperature();
+  Serial.println(isnan(firstTemp) ? "DHT-11 NOT RESPONDING (check wiring: S -> GPIO 33)"
+                                  : "DHT-11 OK (GPIO 33)");
 
   iotInitSPI();
   loraOk = initLoRa();
