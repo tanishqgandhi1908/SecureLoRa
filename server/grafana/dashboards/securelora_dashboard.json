@@ -1,0 +1,647 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "System Status & Key Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Live temperature from shed sensor node",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#56A64B", "value": null },
+              { "color": "#E5A8E2", "value": 30 },
+              { "color": "#E02F44", "value": 35 }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temp_c\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Temperature",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Live relative humidity from DHT-11",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#3274D9", "value": null }
+            ]
+          },
+          "unit": "humidity"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"humidity_pct\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Humidity",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Over-threshold alert indicator (>35 C)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "#56A64B", "index": 0, "text": "NORMAL (OK)" },
+                "1": { "color": "#E02F44", "index": 1, "text": "🔥 HIGH TEMP ALERT (>35°C)" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#56A64B", "value": null },
+              { "color": "#E02F44", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"alert_int\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "Alert Indicator",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Stale data banner: triggers when no reading arrives for >3 min (3 missed 60s heartbeats)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "#56A64B", "index": 0, "text": "🟢 LINK ACTIVE (Fresh)" },
+                "1": { "color": "#E02F44", "index": 1, "text": "⚠️ DATA STALE: Link down (>3m)" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#56A64B", "value": null },
+              { "color": "#E02F44", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 13, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"link_health\")\n  |> filter(fn: (r) => r[\"_field\"] == \"stale_int\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "Stale Data Banner",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Packet delivery rate calculated from sequence continuity",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#E02F44", "value": null },
+              { "color": "#FF9830", "value": 85 },
+              { "color": "#56A64B", "value": 95 }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 1 },
+      "id": 5,
+      "options": {
+        "minVizHeight": 10,
+        "minVizWidth": 10,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"link_health\")\n  |> filter(fn: (r) => r[\"_field\"] == \"delivery_rate_pct\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "Delivery Rate",
+      "type": "gauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "id": 101,
+      "title": "Environmental Telemetry (Live & Historical)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Temperature (°C)",
+            "axisPlacement": "auto",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 35 }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temp_c\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"Temperature\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Temperature History (°C)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Humidity (%)",
+            "axisPlacement": "auto",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "humidity"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"humidity_pct\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"Humidity\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Humidity History (%)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 102,
+      "title": "RF Link Health, Signal Quality & Continuity",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Signal (dBm / dB)",
+            "axisPlacement": "auto",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "RSSI (dBm)" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "left" },
+              { "id": "unit", "value": "dBm" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SNR (dB)" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "unit", "value": "dB" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"rssi_dbm\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"RSSI (dBm)\")",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"snr_db\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"SNR (dB)\")",
+          "refId": "B"
+        }
+      ],
+      "title": "Radio Signal Strength & Quality (RSSI / SNR)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Sequence Number",
+            "axisPlacement": "auto",
+            "fillOpacity": 10,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "purple", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "id": 9,
+      "options": {
+        "legend": { "calcs": ["max", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"seq\")\n  |> filter(fn: (r) => r[\"type\"] == \"reading\")\n  |> yield(name: \"Packet SEQ\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Sequence Number (SEQ Progression)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Seconds Between Packets",
+            "axisPlacement": "auto",
+            "fillOpacity": 15,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 180 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "id": 10,
+      "options": {
+        "legend": { "calcs": ["max", "mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"link_health\")\n  |> filter(fn: (r) => r[\"_field\"] == \"gap_seconds\")\n  |> yield(name: \"Gap Seconds\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Inter-Packet Gap (Stale > 180s)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 103,
+      "title": "Security, Protocol Verdicts & Diagnostics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Distribution of packet verdicts",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 25 },
+      "id": 11,
+      "options": {
+        "displayLabels": ["percent", "name"],
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value"] },
+        "pieType": "pie",
+        "reduceOptions": { "calcs": ["count"], "fields": "", "values": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"_field\"] == \"seq\")\n  |> group(columns: [\"verdict\"])\n  |> count()",
+          "refId": "A"
+        }
+      ],
+      "title": "Packet Verdicts (Accepted / Rejected / Replay)",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Log table of packet verdicts, sequence numbers, and reasons",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 8, "y": 25 },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Time" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"packet_event\")\n  |> filter(fn: (r) => r[\"_field\"] == \"seq\" or r[\"_field\"] == \"reason\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"node_id\", \"seq\", \"verdict\", \"reason\", \"type\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Packet Audit Stream",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+      "description": "Count of fake test packets sent via gateway 'fake' command",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 20, "y": 25 },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["count"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "InfluxDB_SecureLoRa" },
+          "query": "from(bucket: \"readings\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"reading\")\n  |> filter(fn: (r) => r[\"is_test\"] == \"true\")\n  |> filter(fn: (r) => r[\"_field\"] == \"seq\")\n  |> count()",
+          "refId": "A"
+        }
+      ],
+      "title": "Test Packets Received",
+      "type": "stat"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["securelora", "iot", "lora", "cs244p"],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["1s", "5s", "10s", "30s", "1m"],
+    "time_options": ["5m", "15m", "30m", "1h", "6h", "12h", "24h", "2d", "7d"]
+  },
+  "timezone": "browser",
+  "title": "SecureLoRa: Node & Link Monitoring",
+  "uid": "securelora-main",
+  "version": 1
+}
