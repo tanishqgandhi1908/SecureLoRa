@@ -6,9 +6,8 @@ set -e
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "${SCRIPT_DIR}/../certs"
 CERTS_DIR="$(cd "${SCRIPT_DIR}/../certs" && pwd)"
-
-mkdir -p "${CERTS_DIR}"
 cd "${CERTS_DIR}"
 
 # Determine IP address for SAN (Subject Alternative Name)
@@ -43,6 +42,9 @@ subjectAltName = @alt_names
 
 [alt_names]
 DNS.1 = localhost
+# The ESP32's mbedTLS (2.28) only matches DNS-name entries, not IP entries, when checking the
+# hostname. So the IP is listed BOTH as a DNS name (for the ESP32) and as an IP (for browsers/curl).
+DNS.2 = ${TARGET_IP}
 IP.1 = 127.0.0.1
 IP.2 = ${TARGET_IP}
 EOF
