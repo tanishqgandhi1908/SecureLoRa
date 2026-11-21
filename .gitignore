@@ -33,5 +33,4 @@ __pycache__/
 # HMAC key shared by node + gateway (copy shared/secret_key_example.h)
 shared/secret_key.h
 
-# Serial monitor logs (kept locally; copy the 72 h logs to /logs on purpose if needed)
-*.log
+# (*.log above also covers serial monitor logs in gateway/logs/; copy 72 h logs to /logs on purpose)

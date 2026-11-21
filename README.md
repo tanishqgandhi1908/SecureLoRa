@@ -8,9 +8,17 @@ SecureLoRa/
   shared/    iot_pins.h, iot_common.h (copied from the course labs), lora_settings.h (radio settings for both boards),
              packet_auth.h (HMAC tag), lora_diag.h (LoRa wiring check), secret_key_example.h (template for the key)
   node/      PlatformIO project: DHT-11 -> LoRa, LED alert
-  gateway/   PlatformIO project: LoRa -> Wi-Fi -> HTTP(S) POST
+  gateway/   PlatformIO project: LoRa -> Wi-Fi -> HTTPS POST
+  server/    FastAPI ingest + InfluxDB + Grafana + nginx (Docker Compose); see server/README.md
+  docs/      TEST_RESULTS.md (fault tests), DECISIONS.md (design records), RUNBOOK.md (fixing problems), BOM.md (parts)
 ```
 Open `node/` or `gateway/` as its own project in VS Code (PlatformIO: File → Open Folder).
+
+**Quick start (from a fresh clone):**
+1. Server: `cd server && cp .env.example .env`, replace every `CHANGE_ME` (`openssl rand -hex 32`), run `./scripts/generate_certs.sh <server IP>`, then `docker compose up -d`.
+2. Key: `cp shared/secret_key_example.h shared/secret_key.h` and put a random key in it.
+3. Gateway: `cp gateway/include/secrets_example.h gateway/include/secrets.h`; fill in Wi-Fi, `https://<server IP>:8443/api/readings`, the token, and `server/certs/ca.pem`. Upload.
+4. Node: upload. Readings appear on Grafana at `http://<server IP>:3000/d/securelora-main/`.
 
 ## Wiring (course kit pin map, same as the labs)
 
